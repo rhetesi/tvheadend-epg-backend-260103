@@ -3,8 +3,8 @@
   "name": "TVHeadend EPG",
   "version": "1.1.0",
   "config_flow": true,
-  "documentation": "https://github.com/yourname/tvheadend-epg",
-  "codeowners": ["@yourname"],
-  "requirements": [],
+  "documentation": "https://github.com/rhetesi/tvheadend-epg",
+  "issue_tracker": "https://github.com/rhetesi/tvheadend-epg/issues",
+  "codeowners": ["@rhetesi"],
   "iot_class": "local_polling"
 }
