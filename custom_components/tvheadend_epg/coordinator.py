@@ -1,0 +1,18 @@
+from datetime import timedelta
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+class TVHEPGCoordinator(DataUpdateCoordinator):
+    def __init__(self, hass, api, storage):
+        super().__init__(
+            hass,
+            logger=None,
+            name="TVHeadend EPG",
+            update_interval=timedelta(minutes=15),
+        )
+        self.api = api
+        self.storage = storage
+
+    async def _async_update_data(self):
+        epg = await self.api.get_epg()
+        await self.storage.save(epg)
+        return epg

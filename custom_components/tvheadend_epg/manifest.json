@@ -1,0 +1,10 @@
+{
+  "domain": "tvheadend_epg",
+  "name": "TVHeadend EPG",
+  "version": "1.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/yourname/tvheadend-epg",
+  "codeowners": ["@yourname"],
+  "requirements": [],
+  "iot_class": "local_polling"
+}
