@@ -1,75 +1,85 @@
+import asyncio
 import logging
 from typing import Any
 
 import aiohttp
-import async_timeout
-from urllib.parse import urljoin
+from aiohttp import ClientError, ClientResponseError
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class TVHHttpAuthError(Exception):
+    """Authentication error."""
+
+
+class TVHHttpConnectionError(Exception):
+    """Connection error."""
+
+
+class TVHHttpRequestError(Exception):
+    """Request error."""
 
 
 class TVHHttpApi:
     """HTTP API client for TVHeadend."""
 
     def __init__(self, base_url: str, username: str, password: str) -> None:
-        """
-        base_url example:
-            http://lando07.ddns.net:9981
-            http://192.168.1.82:9981
-        """
         self._base_url = base_url.rstrip("/")
-        self._auth = aiohttp.BasicAuth(username, password)
+        self._username = username
+        self._password = password
+        self._timeout = aiohttp.ClientTimeout(total=20)
 
-    async def get_epg(self, limit: int = 1000) -> Any:
-        """
-        Fetch EPG data from TVHeadend via HTTP API.
-        """
-        endpoint = f"api/epg/events/grid?limit={limit}"
-        url = urljoin(self._base_url + "/", endpoint)
+    async def _request(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        url = f"{self._base_url}{path}"
 
-        _LOGGER.debug("TVHeadend HTTP EPG request URL: %s", url)
-        _LOGGER.debug("TVHeadend HTTP EPG user: %s", self._auth.login)
+        # ---- DIGEST AUTH FIRST (TVHeadend default) ----
+        digest_auth = aiohttp.DigestAuth(self._username, self._password)
 
-        timeout = aiohttp.ClientTimeout(total=15)
+        try:
+            async with aiohttp.ClientSession(
+                auth=digest_auth,
+                timeout=self._timeout,
+            ) as session:
+                async with session.get(url, params=params) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            try:
-                async with async_timeout.timeout(15):
-                    async with session.get(url, auth=self._auth) as response:
-                        if response.status == 401:
-                            raise TVHHttpAuthError(
-                                "Authentication failed (401). "
-                                "Check TVHeadend username/password and API access."
-                            )
-
-                        response.raise_for_status()
-                        return await response.json()
-
-            except aiohttp.ClientConnectorError as err:
-                raise TVHHttpConnectionError(
-                    f"Cannot connect to TVHeadend at {self._base_url}"
-                ) from err
-
-            except aiohttp.ClientResponseError as err:
-                raise TVHHttpRequestError(
-                    f"HTTP error from TVHeadend: {err.status} {err.message}"
-                ) from err
-
-            except Exception:
+        except ClientResponseError as err:
+            if err.status == 401:
+                _LOGGER.debug("Digest auth failed, trying Basic auth fallback")
+            else:
                 raise
 
+        except ClientError:
+            pass
 
-class TVHHttpError(Exception):
-    """Base class for TVHeadend HTTP errors."""
+        # ---- BASIC AUTH FALLBACK ----
+        basic_auth = aiohttp.BasicAuth(self._username, self._password)
 
+        try:
+            async with aiohttp.ClientSession(
+                auth=basic_auth,
+                timeout=self._timeout,
+            ) as session:
+                async with session.get(url, params=params) as resp:
+                    resp.raise_for_status()
+                    return await resp.json()
 
-class TVHHttpAuthError(TVHHttpError):
-    """Authentication error (401)."""
+        except ClientResponseError as err:
+            if err.status == 401:
+                raise TVHHttpAuthError("Invalid username or password") from err
+            raise TVHHttpRequestError(err) from err
 
+        except asyncio.TimeoutError as err:
+            raise TVHHttpConnectionError("Connection timed out") from err
 
-class TVHHttpConnectionError(TVHHttpError):
-    """Connection error."""
+        except ClientError as err:
+            raise TVHHttpConnectionError(err) from err
 
-
-class TVHHttpRequestError(TVHHttpError):
-    """Other HTTP errors."""
+    async def get_epg(self, limit: int = 1000) -> list[dict[str, Any]]:
+        """Fetch EPG data."""
+        data = await self._request(
+            "/api/epg/events/grid",
+            params={"limit": limit},
+        )
+        return data.get("entries", [])
