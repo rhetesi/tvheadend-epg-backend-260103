@@ -1,37 +1,60 @@
+import logging
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
 from .const import DOMAIN, PLATFORMS
 from .coordinator import TVHEPGCoordinator
 from .storage import EPGStorage
-from .services import async_register_services
-from .api.http import TVHHttpAPI
-from .ws import async_register_ws
+from .api.http import TVHHttpApi
 
-async def async_setup_entry(hass, entry):
-    api = TVHHttpAPI(
-        entry.data["host"],
-        entry.data["port"],
-        entry.data["username"],
-        entry.data["password"],
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up TVHeadend EPG from a config entry."""
+    _LOGGER.debug("Setting up TVHeadend EPG entry: %s", entry.entry_id)
+
+    # Initialize API client
+    http_api = TVHHttpApi(
+        base_url=entry.data["url"],
+        username=entry.data["username"],
+        password=entry.data["password"],
     )
 
+    # Initialize storage (persistent, not sensor-based)
     storage = EPGStorage(hass, entry.entry_id)
-    coordinator = TVHEPGCoordinator(hass, api, storage)
 
+    # Initialize coordinator
+    coordinator = TVHEPGCoordinator(
+        hass=hass,
+        http_api=http_api,
+        storage=storage,
+    )
+
+    # First refresh (fail fast if config is invalid)
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # Store references
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": coordinator,
+        "storage": storage,
+    }
 
-    async_register_services(hass, coordinator)
-    async_register_ws(hass)
-
+    # Forward setup to platforms (e.g. sensor)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    _LOGGER.debug("TVHeadend EPG entry setup complete: %s", entry.entry_id)
     return True
 
 
-async def async_unload_entry(hass, entry):
-    hass.services.async_remove(DOMAIN, "refresh")
-    hass.services.async_remove(DOMAIN, "record")
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a TVHeadend EPG config entry."""
+    _LOGGER.debug("Unloading TVHeadend EPG entry: %s", entry.entry_id)
 
-    await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    hass.data[DOMAIN].pop(entry.entry_id)
-    return True
+    if unload_ok:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+
+    return unload_ok
