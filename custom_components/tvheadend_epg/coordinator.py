@@ -1,11 +1,14 @@
+import logging
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 class TVHEPGCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, api, storage):
         super().__init__(
             hass,
-            logger=None,
+            logger=_LOGGER,
             name="TVHeadend EPG",
             update_interval=timedelta(minutes=15),
         )
